@@ -34,6 +34,12 @@ void URTSSelectionPanelWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	// Fall back to the default tile if the Widget Blueprint doesn't pick one in its Class Defaults.
+	if (!EntryClass)
+	{
+		EntryClass = LoadClass<URTSSelectionEntryWidget>(nullptr, TEXT("/Game/RTS/UI/WBP_SelectionEntry.WBP_SelectionEntry_C"));
+	}
+
 	Controller = Cast<ARTSPlayerController>(GetOwningPlayer());
 	if (Controller.IsValid())
 	{

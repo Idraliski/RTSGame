@@ -1,13 +1,14 @@
 #include "RTSHUD.h"
 
+#include "RTSHUDWidget.h"
 #include "RTSPlayerController.h"
-#include "RTSSelectionWidgets.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogRTSHUD, Log, All);
 
 ARTSHUD::ARTSHUD()
 {
-	SelectionPanelClass = TSoftClassPtr<URTSSelectionPanelWidget>(FSoftObjectPath(TEXT("/Game/RTS/UI/WBP_SelectionPanel.WBP_SelectionPanel_C")));
+	HUDWidgetClass = TSoftClassPtr<URTSHUDWidget>(FSoftObjectPath(TEXT("/Game/RTS/UI/WBP_HUD.WBP_HUD_C")));
+	SelectionPanelClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/RTS/UI/WBP_SelectionPanel.WBP_SelectionPanel_C")));
 }
 
 void ARTSHUD::BeginPlay()
@@ -20,14 +21,32 @@ void ARTSHUD::BeginPlay()
 		return;
 	}
 
+	UClass* WidgetClass = HUDWidgetClass.LoadSynchronous();
+	if (!WidgetClass)
+	{
+		UE_LOG(LogRTSHUD, Warning, TEXT("HUD widget %s not found, so no on-screen HUD."), *HUDWidgetClass.ToString());
+		return;
+	}
+
+	HUDWidget = CreateWidget<URTSHUDWidget>(PC, WidgetClass);
+	HUDWidget->AddToViewport();
+	ShowSelectionPanel();
+}
+
+UUserWidget* ARTSHUD::ShowBottomPanel(TSubclassOf<UUserWidget> PanelClass)
+{
+	return HUDWidget ? HUDWidget->ShowBottomPanel(PanelClass) : nullptr;
+}
+
+void ARTSHUD::ShowSelectionPanel()
+{
 	if (UClass* PanelClass = SelectionPanelClass.LoadSynchronous())
 	{
-		SelectionPanel = CreateWidget<URTSSelectionPanelWidget>(PC, PanelClass);
-		SelectionPanel->AddToViewport();
+		ShowBottomPanel(PanelClass);
 	}
 	else
 	{
-		UE_LOG(LogRTSHUD, Warning, TEXT("Selection panel %s not found, so no selection UI."), *SelectionPanelClass.ToString());
+		UE_LOG(LogRTSHUD, Warning, TEXT("Selection panel %s not found."), *SelectionPanelClass.ToString());
 	}
 }
 
