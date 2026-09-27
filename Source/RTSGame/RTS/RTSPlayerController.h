@@ -4,10 +4,12 @@
 #include "GameFramework/PlayerController.h"
 #include "RTSPlayerController.generated.h"
 
+class ARTSBuilding;
 class ARTSUnit;
 class UInputAction;
 class UInputMappingContext;
 class UTexture2D;
+class UUserWidget;
 struct FInputActionValue;
 
 /** All selected units of one type (class), as shown by one entry in the selection panel. */
@@ -41,11 +43,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FRTSSelectionChangedSignature);
  *
  * IA_Select          Left mouse     click = select one unit, drag = box select
  * IA_AddToSelection  Shift          hold to add to the selection instead of replacing it
- * IA_Command         Right mouse    move selected units there, in a small grid formation
+ * IA_Command         Right mouse    move selected units there, in a small grid formation (or set a selected building's rally point)
  * IA_Pan (2D)        Arrow keys     pan (pushing the mouse to the screen edge also pans)
  * IA_Zoom (1D)       Mouse wheel    zoom
  * IA_RotateHold      Middle mouse   hold to rotate the camera
  * IA_Rotate (2D)     Mouse XY       mouse movement, turns/tilts the camera while IA_RotateHold is held
+ * IA_ProductionSlot1 A              train the selected building's first unit type
  */
 UCLASS()
 class RTSGAME_API ARTSPlayerController : public APlayerController
@@ -64,6 +67,14 @@ public:
 	/** The selection split by unit type, in the order each type was first selected. */
 	UFUNCTION(BlueprintCallable, Category = "RTS|Selection")
 	TArray<FRTSSelectionGroup> GetSelectionGroups() const;
+
+	/** The selected building, or null. Selecting a building clears the unit selection and vice versa. */
+	UFUNCTION(BlueprintCallable, Category = "RTS|Selection")
+	ARTSBuilding* GetSelectedBuilding() const;
+
+	/** The key bound to production slot Slot (the building's Slot-th unit), e.g. "A". Empty if the slot has no key. */
+	UFUNCTION(BlueprintPure, Category = "RTS|Building")
+	FText GetProductionHotkeyText(int32 Slot) const;
 
 	/** Fires whenever units are added to or removed from the selection. UI listens to this instead of polling. */
 	UPROPERTY(BlueprintAssignable, Category = "RTS|Selection")
@@ -102,6 +113,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "RTS|Input")
 	TSoftObjectPtr<UInputAction> RotateAction;
 
+	/** One action per production button: slot 0 trains the selected building's first unit type, and so on. */
+	UPROPERTY(EditDefaultsOnly, Category = "RTS|Input")
+	TArray<TSoftObjectPtr<UInputAction>> ProductionSlotActions;
+
+	/** Bottom panel shown while a building is selected. Defaults to /Game/RTS/UI/WBP_BuildingPanel. */
+	UPROPERTY(EditDefaultsOnly, Category = "RTS|Building")
+	TSoftClassPtr<UUserWidget> BuildingPanelClass;
+
 	UPROPERTY(EditAnywhere, Category = "RTS|Camera")
 	bool bEdgeScroll = true;
 
@@ -127,9 +146,14 @@ private:
 	void OnRotateHoldPressed();
 	void OnRotateHoldReleased();
 	void OnRotate(const FInputActionValue& Value);
+	void OnProductionSlot(int32 Slot);
+
+	/** Broadcast OnSelectionChanged and swap the bottom HUD panel between units and building. */
+	void NotifySelectionChanged();
 
 	void UpdateCameraPan();
 	void SelectUnit(ARTSUnit* Unit);
+	void SelectBuilding(ARTSBuilding* Building);
 	void SelectUnitsInRect(const FVector2D& CornerA, const FVector2D& CornerB);
 	void ClearSelection();
 
@@ -139,6 +163,7 @@ private:
 
 	/** Weak pointers so a destroyed unit simply drops out of the selection. */
 	TArray<TWeakObjectPtr<ARTSUnit>> SelectedUnits;
+	TWeakObjectPtr<ARTSBuilding> SelectedBuilding;
 
 	bool bSelectHeld = false;
 	bool bAddToSelectionHeld = false;

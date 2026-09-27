@@ -33,6 +33,8 @@ public:
 
 	UTexture2D* GetUnitIcon() const { return Icon; }
 
+	float GetBuildTime() const { return BuildTime; }
+
 protected:
 	/** A cylinder so the unit is visible with zero assets. Hide it once you give a Blueprint child a real skeletal mesh. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "RTS|Unit")
@@ -51,6 +53,10 @@ protected:
 	/** Portrait for the selection panel. Leave empty to show a plain coloured square. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "RTS|Unit")
 	TObjectPtr<UTexture2D> Icon;
+
+	/** Seconds a building takes to train one of these. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "RTS|Unit", meta = (ClampMin = "0"))
+	float BuildTime = 3.f;
 
 private:
 	bool bSelected = false;

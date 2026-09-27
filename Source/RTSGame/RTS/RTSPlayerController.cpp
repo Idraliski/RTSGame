@@ -8,7 +8,10 @@
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
+#include "Blueprint/UserWidget.h"
+#include "RTSBuilding.h"
 #include "RTSCameraPawn.h"
+#include "RTSHUD.h"
 #include "RTSUnit.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogRTSInput, Log, All);
@@ -37,6 +40,9 @@ ARTSPlayerController::ARTSPlayerController()
 	ZoomAction = RTSInputAsset<UInputAction>(TEXT("IA_Zoom"));
 	RotateHoldAction = RTSInputAsset<UInputAction>(TEXT("IA_RotateHold"));
 	RotateAction = RTSInputAsset<UInputAction>(TEXT("IA_Rotate"));
+	ProductionSlotActions.Add(RTSInputAsset<UInputAction>(TEXT("IA_ProductionSlot1")));
+
+	BuildingPanelClass = TSoftClassPtr<UUserWidget>(FSoftObjectPath(TEXT("/Game/RTS/UI/WBP_BuildingPanel.WBP_BuildingPanel_C")));
 }
 
 void ARTSPlayerController::BeginPlay()
@@ -108,6 +114,14 @@ void ARTSPlayerController::SetupInputComponent()
 	if (UInputAction* Action = RotateAction.LoadSynchronous())
 	{
 		Input->BindAction(Action, ETriggerEvent::Triggered, this, &ARTSPlayerController::OnRotate);
+	}
+	for (int32 Slot = 0; Slot < ProductionSlotActions.Num(); ++Slot)
+	{
+		// The extra argument is passed through to the handler, so one function serves every slot.
+		if (UInputAction* Action = ProductionSlotActions[Slot].LoadSynchronous())
+		{
+			Input->BindAction(Action, ETriggerEvent::Started, this, &ARTSPlayerController::OnProductionSlot, Slot);
+		}
 	}
 }
 
@@ -265,11 +279,20 @@ void ARTSPlayerController::OnSelectReleased()
 		FHitResult Hit;
 		if (GetHitResultUnderCursor(ECC_Pawn, false, Hit))
 		{
-			SelectUnit(Cast<ARTSUnit>(Hit.GetActor()));
+			if (ARTSBuilding* Building = Cast<ARTSBuilding>(Hit.GetActor()))
+			{
+				// A building is selected on its own, even with Shift held: its panel replaces the units panel.
+				ClearSelection();
+				SelectBuilding(Building);
+			}
+			else
+			{
+				SelectUnit(Cast<ARTSUnit>(Hit.GetActor()));
+			}
 		}
 	}
 
-	OnSelectionChanged.Broadcast();
+	NotifySelectionChanged();
 }
 
 void ARTSPlayerController::SelectUnitsInRect(const FVector2D& CornerA, const FVector2D& CornerB)
@@ -294,6 +317,13 @@ void ARTSPlayerController::SelectUnit(ARTSUnit* Unit)
 {
 	if (Unit && !Unit->IsSelected())
 	{
+		// Units and a building are never selected together (Shift+clicking a unit drops the building).
+		if (SelectedBuilding.IsValid())
+		{
+			SelectedBuilding->SetSelected(false);
+			SelectedBuilding.Reset();
+		}
+
 		Unit->SetSelected(true);
 		Unit->OnDestroyed.AddUniqueDynamic(this, &ARTSPlayerController::OnSelectedUnitDestroyed);
 		SelectedUnits.Add(Unit);
@@ -311,6 +341,73 @@ void ARTSPlayerController::ClearSelection()
 		}
 	}
 	SelectedUnits.Reset();
+
+	if (SelectedBuilding.IsValid())
+	{
+		SelectedBuilding->SetSelected(false);
+	}
+	SelectedBuilding.Reset();
+}
+
+void ARTSPlayerController::SelectBuilding(ARTSBuilding* Building)
+{
+	if (Building)
+	{
+		Building->SetSelected(true);
+		SelectedBuilding = Building;
+	}
+}
+
+ARTSBuilding* ARTSPlayerController::GetSelectedBuilding() const
+{
+	return SelectedBuilding.Get();
+}
+
+void ARTSPlayerController::NotifySelectionChanged()
+{
+	OnSelectionChanged.Broadcast();
+
+	if (ARTSHUD* RTSHUD = Cast<ARTSHUD>(GetHUD()))
+	{
+		if (SelectedBuilding.IsValid())
+		{
+			RTSHUD->ShowBottomPanel(BuildingPanelClass.LoadSynchronous());
+		}
+		else
+		{
+			RTSHUD->ShowSelectionPanel();
+		}
+	}
+}
+
+// ---------------------------------------------------------------- Production
+
+void ARTSPlayerController::OnProductionSlot(int32 Slot)
+{
+	if (ARTSBuilding* Building = SelectedBuilding.Get())
+	{
+		const TArray<TSubclassOf<ARTSUnit>> Units = Building->GetProducibleUnits();
+		if (Units.IsValidIndex(Slot))
+		{
+			Building->QueueUnit(Units[Slot]);
+		}
+	}
+}
+
+FText ARTSPlayerController::GetProductionHotkeyText(int32 Slot) const
+{
+	// Ask Enhanced Input which key is mapped to the slot's action, so the label follows any rebinding in IMC_RTS.
+	const UInputAction* Action = ProductionSlotActions.IsValidIndex(Slot) ? ProductionSlotActions[Slot].Get() : nullptr;
+	const UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (Action && Subsystem)
+	{
+		const TArray<FKey> Keys = Subsystem->QueryKeysMappedToAction(Action);
+		if (Keys.Num() > 0)
+		{
+			return Keys[0].GetDisplayName(false);
+		}
+	}
+	return FText::GetEmpty();
 }
 
 void ARTSPlayerController::OnSelectedUnitDestroyed(AActor* DestroyedActor)
@@ -319,7 +416,7 @@ void ARTSPlayerController::OnSelectedUnitDestroyed(AActor* DestroyedActor)
 	{
 		return !Unit.IsValid() || Unit.Get() == DestroyedActor;
 	});
-	OnSelectionChanged.Broadcast();
+	NotifySelectionChanged();
 }
 
 TArray<FRTSSelectionGroup> ARTSPlayerController::GetSelectionGroups() const
@@ -351,7 +448,7 @@ TArray<FRTSSelectionGroup> ARTSPlayerController::GetSelectionGroups() const
 void ARTSPlayerController::OnCommandPressed()
 {
 	SelectedUnits.RemoveAll([](const TWeakObjectPtr<ARTSUnit>& Unit) { return !Unit.IsValid(); });
-	if (SelectedUnits.Num() == 0)
+	if (SelectedUnits.Num() == 0 && !SelectedBuilding.IsValid())
 	{
 		return;
 	}
@@ -360,6 +457,13 @@ void ARTSPlayerController::OnCommandPressed()
 	FHitResult Hit;
 	if (!GetHitResultUnderCursor(ECC_Visibility, false, Hit))
 	{
+		return;
+	}
+
+	// With a building selected, right-click moves where its new units walk to.
+	if (SelectedBuilding.IsValid())
+	{
+		SelectedBuilding->SetRallyPoint(Hit.Location);
 		return;
 	}
 

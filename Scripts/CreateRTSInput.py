@@ -1,7 +1,7 @@
 """
 Creates the Enhanced Input assets the RTS player controller expects, in /Game/RTS/Input:
   IA_Select (bool), IA_AddToSelection (bool), IA_Command (bool),
-  IA_Pan (Axis2D), IA_Zoom (Axis1D), IA_RotateHold (bool), IA_Rotate (Axis2D),
+  IA_Pan (Axis2D), IA_Zoom (Axis1D), IA_RotateHold (bool), IA_Rotate (Axis2D), IA_ProductionSlot1 (bool),
   and the mapping context IMC_RTS.
 
 Safe to re-run: existing assets are reused and the context's mappings are rewritten.
@@ -45,6 +45,7 @@ pan = make_action("IA_Pan", VT.AXIS2D)
 zoom = make_action("IA_Zoom", VT.AXIS1D)
 rotate_hold = make_action("IA_RotateHold", VT.BOOLEAN)
 rotate = make_action("IA_Rotate", VT.AXIS2D)
+production_slot1 = make_action("IA_ProductionSlot1", VT.BOOLEAN)
 
 imc = get_or_create("IMC_RTS", unreal.InputMappingContext, unreal.InputMappingContext_Factory())
 
@@ -78,6 +79,8 @@ mappings = [
     mapping(rotate_hold, "MiddleMouseButton"),
     # Mouse2D is the mouse's X/Y movement each frame. Add a Negate modifier here to invert the rotation.
     mapping(rotate, "Mouse2D"),
+    # Trains the selected building's first unit type. Add IA_ProductionSlot2... for more buttons.
+    mapping(production_slot1, "A"),
 ]
 # WASD was removed at Alski's request; arrow keys and screen-edge scrolling still pan.
 for fwd, back, right, left in (("Up", "Down", "Right", "Left"),):
